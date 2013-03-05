@@ -62,36 +62,38 @@ mkFQueue = Queue empty enqueue dequeue front where
   front f = head $ f []
 
 
--- data IOList a = Empty | Cons a (IORef (IOList a))
--- type VQueue a = (IOList a, IORef (IOList a))
--- 
--- empty :: IO (VQueue a)
--- empty = return (Empty, error "empty queue")
--- 
--- enqueue :: a -> VQueue a -> IO (VQueue a)
--- enqueue x (Empty, _) = do e <- newIORef Empty
---                           return (Cons x e, e)
--- enqueue x (q, r) = do e <- newIORef Empty
---                       r $= Cons x e
---                       return (q, e)
--- 
--- dequeue :: VQueue a -> IO (VQueue a)
--- dequeue (Cons _ r, e) = do q <- get r
---                            case q of
---                              Empty -> empty
---                              q -> return (q, e)
--- 
--- front :: VQueue a -> a
--- front (Cons x _, _) = x
--- 
--- 
--- loop :: VQueue Int -> Int -> IO ()
--- loop q i = do print $ front q
---               q <- dequeue q
---               q <- enqueue i q
---               loop q (i+1)
--- q <- foldM (flip enqueue) q [0..1000]
--- loop q 1001
+data IOQueue s a = IOQueue { io_empty :: IO s
+                           , io_enqueue :: a -> s -> IO s
+                           , io_dequeue :: s -> IO s
+                           , io_front :: s -> a
+                           }
+
+data IOList a = IOEmpty | IOCons a (IORef (IOList a))
+type VQueue a = (IOList a, IORef (IOList a))
+
+do_empty :: IO (VQueue a)
+do_empty = return (IOEmpty, error "empty queue")
+
+do_enqueue :: a -> VQueue a -> IO (VQueue a)
+do_enqueue x (IOEmpty, _) = do e <- newIORef IOEmpty
+                               return (IOCons x e, e)
+do_enqueue x (q, r) = do e <- newIORef IOEmpty
+                         r $= IOCons x e
+                         return (q, e)
+   
+do_dequeue :: VQueue a -> IO (VQueue a)
+do_dequeue (IOCons _ r, e) = do q <- get r
+                                case q of
+                                  IOEmpty -> do_empty
+                                  q -> return (q, e)
+   
+do_front :: VQueue a -> a
+do_front (IOCons x _, _) = x
+
+
+mkVQueue :: IOQueue (VQueue a) a
+mkVQueue = IOQueue do_empty do_enqueue do_dequeue do_front
+
 
 data STList s a = Empty | Cons a (STRef s (STList s a))
 type SQueue s a = (STList s a, STRef s (STList s a))
@@ -182,9 +184,35 @@ stress_test q = do s <- return $ empty q
                    s <- foldM (enqueue_dequeue q) s [1001..10000]
                    return ()
 
+
+io_print_dequeue :: Show a => IOQueue s a -> s -> IO s
+io_print_dequeue q s = do print $ io_front q s
+                          io_dequeue q s
+
+io_enqueue_dequeue :: Show a => IOQueue s a -> s -> a -> IO s
+io_enqueue_dequeue q s i = do s <- io_print_dequeue q s
+                              io_enqueue q i s
+   
+io_stress_test :: IOQueue s Int -> IO ()
+io_stress_test q = do s <- io_empty q
+                      s <- foldM (flip $ io_enqueue q) s $ [0..1000]
+                      s <- foldM (io_enqueue_dequeue q) s [1001..10000]
+                      return ()
+
+(...) = (.) . (.)
+
+io_queue :: Queue s a -> IOQueue s a
+io_queue (Queue empty enqueue dequeue front) = IOQueue (return empty)
+                                                       (return ... enqueue)
+                                                       (return . dequeue)
+                                                       front
+
+
 main = do putStrLn "typechecks."
           -- test_queue mkLQueue
           -- test_queue mkFQueue
           -- test_queue mkHQueue
           -- test_queue mkTQueue
-          stress_test mkTQueue
+          -- stress_test mkTQueue
+          -- io_stress_test $ io_queue mkTQueue
+          io_stress_test mkVQueue
