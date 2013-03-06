@@ -129,6 +129,13 @@ mkHQueue = Queue empty enqueue dequeue front where
   front (HQueue get_q) = runST $ do q <- get_q
                                     return $ s_front q
 
+(...) = (.) . (.)
+
+mkSTQueue :: IOQueue (SQueue RealWorld a) a
+mkSTQueue = IOQueue (stToIO s_empty)
+                    (stToIO ... s_enqueue)
+                    (stToIO . s_dequeue)
+                    s_front
 
 
 data Tree a = Leaf a | Branch (Tree a) (Tree a) deriving (Show, Eq)
@@ -199,8 +206,6 @@ io_stress_test q = do s <- io_empty q
                       s <- foldM (io_enqueue_dequeue q) s [1001..10000]
                       return ()
 
-(...) = (.) . (.)
-
 io_queue :: Queue s a -> IOQueue s a
 io_queue (Queue empty enqueue dequeue front) = IOQueue (return empty)
                                                        (return ... enqueue)
@@ -215,4 +220,5 @@ main = do putStrLn "typechecks."
           -- test_queue mkTQueue
           -- stress_test mkTQueue
           -- io_stress_test $ io_queue mkTQueue
-          io_stress_test mkVQueue
+          -- io_stress_test mkVQueue
+          io_stress_test mkSTQueue
