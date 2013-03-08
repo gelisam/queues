@@ -161,6 +161,69 @@ mkTQueue = Queue empty enqueue dequeue front where
   dequeue xs = take (length xs - 1) xs ++ q_consume_right (last xs)
   front xs = q_right $ snd $ last xs
 
+data AntiList a z = AntiCons (a -> AntiList a z) | AntiNil z
+
+feed_into :: [a] -> AntiList a z -> z
+feed_into _ (AntiNil z) = z
+feed_into (x:xs) (AntiCons f) = feed_into xs $ f x
+
+
+data EnqueueList a z = Enqueue a (EnqueueList a z) | Return z
+
+unEnqueueList :: EnqueueList a z -> ([a], z)
+unEnqueueList (Return z) = ([], z)
+unEnqueueList (Enqueue x es) = let (xs, z) = unEnqueueList es
+                                in (x:xs, z)
+
+type CCQueue a z = [a] -> EnqueueList a z
+
+cc_queue :: CCQueue a z -> z
+cc_queue f = z where
+  (xs, z) = unEnqueueList $ f xs
+
+cc_enqueue :: a -> CCQueue a z -> CCQueue a z
+cc_enqueue x cc xs = Enqueue x $ cc xs
+
+cc_dequeue :: (a -> CCQueue a z) -> CCQueue a z
+cc_dequeue cc (x:xs) = cc x xs
+
+
+cc_print_dequeue :: Show a => (IO () -> CCQueue a z) -> CCQueue a z
+cc_print_dequeue cc = cc_dequeue $ \x ->
+                        cc $ print x
+
+cc_test_queue :: IO ()
+cc_test_queue = cc_queue $
+                cc_enqueue 'a' $
+                cc_enqueue 'b' $
+                cc_enqueue 'c' $
+                cc_print_dequeue $ \io1 ->
+                cc_enqueue 'd' $
+                cc_print_dequeue $ \io2 ->
+                cc_print_dequeue $ \io3 ->
+                cc_print_dequeue $ \io4 ->
+                cc_enqueue 'e' $
+                cc_print_dequeue $ \io5 ->
+                (\_ -> Return $ do io1
+                                   io2
+                                   io3
+                                   io4
+                                   io5
+                                   return ())
+
+
+data RQueue a z = RQueue { unRQueue :: [a] -> ([a], z) }
+
+instance Monad (RQueue a) where
+  return x = RQueue $ \_ -> ([], x)
+  q >>= f = RQueue $ \xs -> let (ys, a) = unRQueue q xs
+                                (ys', b) = unRQueue (f a) xs
+                             in (ys ++ ys', b)
+
+runRQueue :: RQueue [a] z -> z
+runRQueue q = z where
+  (xs, z) = unRQueue q xs
+
 
 
 print_dequeue :: Show a => Queue s a -> s -> IO s
@@ -221,4 +284,5 @@ main = do putStrLn "typechecks."
           -- stress_test mkTQueue
           -- io_stress_test $ io_queue mkTQueue
           -- io_stress_test mkVQueue
-          io_stress_test mkSTQueue
+          -- io_stress_test mkSTQueue
+          cc_test_queue
