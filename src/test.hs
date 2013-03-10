@@ -5,6 +5,7 @@ import Data.STRef
 import Data.StateVar
 import Control.Monad
 import Control.Monad.ST
+import Control.Monad.Trans
 
 
 data StateOp s a where
@@ -223,6 +224,18 @@ instance Monad (RQueue a) where
 runRQueue :: RQueue [a] z -> z
 runRQueue q = z where
   (xs, z) = unRQueue q xs
+
+data RQueueT a m z = RQueueT { runRQueueT :: [a] -> m ([a], z) }
+
+instance Monad m => Monad (RQueueT a m) where
+  return x = RQueueT $ \_ -> return ([], x)
+  x >>= f = RQueueT $ \xs -> do (ys, a) <- runRQueueT x xs
+                                (ys', b) <- runRQueueT (f a) xs
+                                return (ys ++ ys', b)
+
+instance MonadTrans (RQueueT a) where
+  lift mx = RQueueT $ \_ -> do x <- mx
+                               return ([], x)
 
 
 
