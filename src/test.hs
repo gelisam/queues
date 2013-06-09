@@ -1,6 +1,7 @@
 import Data.IORef
 import Data.STRef
 import Data.StateVar
+import qualified Data.Sequence as Seq
 import Control.Monad
 import Control.Monad.ST
 
@@ -18,6 +19,15 @@ mkLQueue = Queue empty enqueue dequeue front where
   enqueue x xs = xs ++ [x]
   dequeue (_:xs) = xs
   front (x:_) = x
+
+
+type CQueue a = Queue (Seq.Seq a) a
+mkCQueue :: CQueue a
+mkCQueue = Queue empty enqueue dequeue front where
+  empty = Seq.empty
+  enqueue x xs = xs Seq.|> x
+  dequeue = Seq.drop 1
+  front = flip Seq.index 0
 
 
 data IOQueue s a = IOQueue { io_empty :: IO s
@@ -169,6 +179,7 @@ main = do putStrLn "typechecks."
           --   'd'
           --   'e'
           --test_queue mkLQueue
+          --test_queue mkCQueue
           --test_queue mkTQueue
           --cc_test_queue
           
@@ -179,6 +190,14 @@ main = do putStrLn "typechecks."
           --  30k  0.06s 0.45s 19.1s
           -- * increasing the buffer decreases the performance
           --stress_test mkLQueue
+           
+          --     \   buffer size              
+          -- #ops \ 100     1k   10k
+          --  10k  0.02s 0.02s 0.02s
+          --  20k  0.03s 0.03s 0.03s
+          --  30k  0.04s 0.04s 0.04s
+          -- * buffer size has no impact on performance
+          --stress_test mkCQueue
            
           --     \   buffer size              
           -- #ops \ 100     1k   10k
