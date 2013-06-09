@@ -263,8 +263,8 @@ enqueue_dequeue q s i = do s <- print_dequeue q s
 
 stress_test :: Queue s Int -> IO ()
 stress_test q = do s <- return $ empty q
-                   s <- return $ foldr (enqueue q) s $ reverse [0..1000]
-                   s <- foldM (enqueue_dequeue q) s [1001..10000]
+                   s <- return $ foldr (enqueue q) s $ reverse [0..10000]
+                   s <- foldM (enqueue_dequeue q) s [1001..31001]
                    return ()
 
 
@@ -278,8 +278,8 @@ io_enqueue_dequeue q s i = do s <- io_print_dequeue q s
    
 io_stress_test :: IOQueue s Int -> IO ()
 io_stress_test q = do s <- io_empty q
-                      s <- foldM (flip $ io_enqueue q) s $ [0..1000]
-                      s <- foldM (io_enqueue_dequeue q) s [1001..10000]
+                      s <- foldM (flip $ io_enqueue q) s $ [0..10000]
+                      s <- foldM (io_enqueue_dequeue q) s [1001..31001]
                       return ()
 
 io_queue :: Queue s a -> IOQueue s a
@@ -290,12 +290,61 @@ io_queue (Queue empty enqueue dequeue front) = IOQueue (return empty)
 
 
 main = do putStrLn "typechecks."
-          -- test_queue mkLQueue
-          -- test_queue mkFQueue
-          -- test_queue mkHQueue
-          -- test_queue mkTQueue
-          -- stress_test mkTQueue
-          -- io_stress_test $ io_queue mkTQueue
-          -- io_stress_test mkVQueue
-          -- io_stress_test mkSTQueue
-          cc_test_queue
+          
+          -- make sure the queues behave as queues.
+          -- this is not an automated test; the output should be:
+          --   'a'
+          --   'b'
+          --   'c'
+          --   'd'
+          --   'e'
+          --test_queue mkLQueue
+          --test_queue mkFQueue
+          --test_queue mkHQueue
+          --test_queue mkTQueue
+          --cc_test_queue
+          
+          --     \   buffer size              
+          -- #ops \ 100     1k   10k
+          --  10k  0.02s 0.15s  5.7s
+          --  20k  0.04s 0.30s 12.0s
+          --  30k  0.06s 0.45s 19.1s
+          -- * increasing the buffer decreases the performance
+          --stress_test mkLQueue
+           
+          --     \   buffer size              
+          -- #ops \ 100     1k   10k
+          --  10k  0.02s 0.02s 0.02s
+          --  20k  0.03s 0.04s 0.04s
+          --  30k  0.05s 0.05s 0.06s
+          -- * buffer size has no impact on performance
+          --stress_test mkTQueue
+          
+          -- We now switch to a different implementation of stress_test,
+          -- which runs inside IO. The previous and the next test apply
+          -- the two stress_test implementations to the same queue
+          -- implementation, to make sure the results are comparable.
+          
+          --     \   buffer size              
+          -- #ops \ 100     1k   10k
+          --  10k  0.02s 0.02s 0.03s
+          --  20k  0.04s 0.04s 0.05s
+          --  30k  0.05s 0.05s 0.07s
+          -- * similar to the non-IO results, accuracy ~0.01
+          --io_stress_test $ io_queue mkTQueue
+          
+          --     \   buffer size              
+          -- #ops \ 100     1k   10k
+          --  10k  0.01s 0.02s 0.02s
+          --  20k  0.02s 0.03s 0.03s
+          --  30k  0.04s 0.04s 0.04s
+          -- * buffer size has no impact on performance
+          --io_stress_test mkVQueue
+          
+          --     \   buffer size              
+          -- #ops \ 100     1k   10k
+          --  10k  0.02s 0.02s 0.02s
+          --  20k  0.03s 0.03s 0.04s
+          --  30k  0.04s 0.04s 0.05s
+          -- * buffer size has no impact on performance
+          --io_stress_test mkSTQueue
