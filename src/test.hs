@@ -1,43 +1,8 @@
-{-# LANGUAGE GADTs, DeriveFunctor, Rank2Types #-}
-
 import Data.IORef
 import Data.STRef
 import Data.StateVar
 import Control.Monad
 import Control.Monad.ST
-import Control.Monad.Trans
-
-
-data StateOp s a where
-  Ignore :: a -> StateOp s a
-  Read :: (s -> a) -> StateOp s a
-  Write :: s -> StateOp s ()
-
-stateValue :: s -> StateOp s a -> a
-stateValue _ (Ignore x) = x
-stateValue s (Read f) = f s
-stateValue _ (Write _) = ()
-
-newState :: s -> StateOp s a -> s
-newState _ (Write x) = x
-newState s _ = s
-
-
-data Program op a where
-  Done :: a -> Program op a
-  AndThen :: op a
-          -> (a -> Program op b)
-          -> Program op b
-
-evalStateProgram :: s -> Program (StateOp s) a -> a
-evalStateProgram s (Done x) = x
-evalStateProgram s (AndThen (Ignore x) cc) = evalStateProgram s $ cc x
-evalStateProgram s (AndThen (Read f) cc) = evalStateProgram s $ cc $ f s
-evalStateProgram _ (AndThen (Write s) cc) = evalStateProgram s $ cc ()
-
-
-fibs :: [Int]
-fibs = 1 : 1 : zipWith (+) fibs (tail fibs)
 
 
 data Queue s a = Queue { empty :: s
@@ -53,14 +18,6 @@ mkLQueue = Queue empty enqueue dequeue front where
   enqueue x xs = xs ++ [x]
   dequeue (_:xs) = xs
   front (x:_) = x
-
-type FQueue a = Queue ([a] -> [a]) a
-mkFQueue :: FQueue a
-mkFQueue = Queue empty enqueue dequeue front where
-  empty = id
-  enqueue x f future = f (x:future)
-  dequeue f future = tail $ f future
-  front f = head $ f []
 
 
 data IOQueue s a = IOQueue { io_empty :: IO s
@@ -118,18 +75,6 @@ s_dequeue (Cons _ r, e) = do q <- readSTRef r
 s_front :: SQueue s a -> a
 s_front (Cons x _, _) = x
 
-data HQueue a = HQueue (forall s. ST s (SQueue s a))
-
-mkHQueue :: Queue (HQueue a) a
-mkHQueue = Queue empty enqueue dequeue front where
-  empty = HQueue s_empty
-  enqueue x (HQueue get_q) = HQueue $ do q <- get_q
-                                         s_enqueue x q
-  dequeue (HQueue get_q) = HQueue $ do q <- get_q
-                                       s_dequeue q
-  front (HQueue get_q) = runST $ do q <- get_q
-                                    return $ s_front q
-
 (...) = (.) . (.)
 
 mkSTQueue :: IOQueue (SQueue RealWorld a) a
@@ -161,81 +106,6 @@ mkTQueue = Queue empty enqueue dequeue front where
   enqueue x = q_prepend (1, Leaf x)
   dequeue xs = take (length xs - 1) xs ++ q_consume_right (last xs)
   front xs = q_right $ snd $ last xs
-
-data AntiList a z = AntiCons (a -> AntiList a z) | AntiNil z
-
-feed_into :: [a] -> AntiList a z -> z
-feed_into _ (AntiNil z) = z
-feed_into (x:xs) (AntiCons f) = feed_into xs $ f x
-
-
-data EnqueueList a z = Enqueue a (EnqueueList a z) | Return z
-
-unEnqueueList :: EnqueueList a z -> ([a], z)
-unEnqueueList (Return z) = ([], z)
-unEnqueueList (Enqueue x es) = let (xs, z) = unEnqueueList es
-                                in (x:xs, z)
-
-type CCQueue a z = [a] -> EnqueueList a z
-
-cc_queue :: CCQueue a z -> z
-cc_queue f = z where
-  (xs, z) = unEnqueueList $ f xs
-
-cc_enqueue :: a -> CCQueue a z -> CCQueue a z
-cc_enqueue x cc xs = Enqueue x $ cc xs
-
-cc_dequeue :: (a -> CCQueue a z) -> CCQueue a z
-cc_dequeue cc (x:xs) = cc x xs
-
-
-cc_print_dequeue :: Show a => (IO () -> CCQueue a z) -> CCQueue a z
-cc_print_dequeue cc = cc_dequeue $ \x ->
-                        cc $ print x
-
-cc_test_queue :: IO ()
-cc_test_queue = cc_queue $
-                cc_enqueue 'a' $
-                cc_enqueue 'b' $
-                cc_enqueue 'c' $
-                cc_print_dequeue $ \io1 ->
-                cc_enqueue 'd' $
-                cc_print_dequeue $ \io2 ->
-                cc_print_dequeue $ \io3 ->
-                cc_print_dequeue $ \io4 ->
-                cc_enqueue 'e' $
-                cc_print_dequeue $ \io5 ->
-                (\_ -> Return $ do io1
-                                   io2
-                                   io3
-                                   io4
-                                   io5
-                                   return ())
-
-
-data RQueue a z = RQueue { unRQueue :: [a] -> ([a], z) }
-
-instance Monad (RQueue a) where
-  return x = RQueue $ \_ -> ([], x)
-  q >>= f = RQueue $ \xs -> let (ys, a) = unRQueue q xs
-                                (ys', b) = unRQueue (f a) xs
-                             in (ys ++ ys', b)
-
-runRQueue :: RQueue [a] z -> z
-runRQueue q = z where
-  (xs, z) = unRQueue q xs
-
-data RQueueT a m z = RQueueT { runRQueueT :: [a] -> m ([a], z) }
-
-instance Monad m => Monad (RQueueT a m) where
-  return x = RQueueT $ \_ -> return ([], x)
-  x >>= f = RQueueT $ \xs -> do (ys, a) <- runRQueueT x xs
-                                (ys', b) <- runRQueueT (f a) xs
-                                return (ys ++ ys', b)
-
-instance MonadTrans (RQueueT a) where
-  lift mx = RQueueT $ \_ -> do x <- mx
-                               return ([], x)
 
 
 
@@ -299,8 +169,6 @@ main = do putStrLn "typechecks."
           --   'd'
           --   'e'
           --test_queue mkLQueue
-          --test_queue mkFQueue
-          --test_queue mkHQueue
           --test_queue mkTQueue
           --cc_test_queue
           
